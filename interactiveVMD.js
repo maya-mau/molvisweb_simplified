@@ -5,12 +5,13 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
 
+
 // GLOBAL CONSTANTS
 const CPK = 'Ball-and-stick';
 const VDW = 'Space filling';
 const lines = 'Lines';
-//const reps = [VDW, CPK, lines];
-const reps = [CPK];
+
+let drawing = [CPK];
 
 // icosahedron detail
 const detail = 3;
@@ -33,31 +34,18 @@ container = document.getElementsByClassName('row')[0];
 let controls;
 let geometryAtoms, geometryBonds, json_atoms, json_bonds, json_bonds_manual, json_bonds_conect, residues, chains;
 
-let initialPosition, initialQuaternion;
-let initialTarget = new THREE.Vector3(0,0,0);
-
 const PDBloader = new PDBLoader(); 
 const offset = new THREE.Vector3();
 
-
 const defaultParams = {
-    repParams: 1 
+    repParams: 1, 
+    drawParams: CPK
 }
 
 const containerWidth = 909;
 const containerHeight = 454;
 
-
-var numRepTabs = 1;
-var currentRep = 0;
-
-globalThis.numRepTabs = numRepTabs;
-globalThis.currentRep = currentRep;
-
 let maxRepTabs = 1;
-
-let frames = 0, prevTime = performance.now();
-const framesOn = true;
 
 init();
 
@@ -65,22 +53,21 @@ init();
 // init function - sets up scene, camera, renderer, controls, and GUIs 
 function init() {
 
-
-    //setupGUI();
+    setupGUI();
     setupLights();
     setupRenderer();
+
     
     // initialize camera
     camera = new THREE.OrthographicCamera(0,0,0,0,0,0);
 
     // the default/first molecule to show up 
-    loadMolecule( 'ponatinib_Ablkinase_Jun2022.pdb', CPK, currentRep, () => {
+    loadMolecule( 'ponatinib_Ablkinase_Jun2022.pdb', () => {
         setupCamera();
         setupControls();
 
         root.visible = true;
 
-        // dynamic screen size 
         window.addEventListener( 'resize', onWindowResize );
 
         onWindowResize();
@@ -92,15 +79,49 @@ function init() {
 }
 
 function setupGUI() {
-    var gui = new GUI();
-    gui.add(defaultParams, 'repParams', 1, 4).step(1).onChange((val) => {
-        console.log("Representation changed!");
+    let gui = new GUI();
+
+    gui.add(defaultParams, 'repParams', [ 1, 2, 3, 4 ] ).onChange((val) => {
         maxRepTabs = val;
-        console.log(root);
-        root.traverse((obj) => {
-            root.remove(obj);
-        })
-        init();
+        resetScene();
+    });
+
+
+    gui.add(defaultParams, 'drawParams', [ CPK, VDW, lines, "all" ] ).onChange((val) => {
+        if (val == "all") {
+            drawing = [VDW, CPK, lines];
+        } else {
+            drawing = [val];
+        }
+
+        resetScene(); 
+    });
+}
+
+function resetScene() {
+    scene.traverse((obj) => {
+        if (obj.isMesh) {
+            obj.geometry.dispose();
+            obj.material.dispose();
+        }
+    });
+
+    while (scene.children.length > 0) {
+        scene.remove(scene.children[0]);
+    }
+
+    numObjects = 0;
+    root = new THREE.Group();
+    scene.add(root);
+
+    loadMolecule( 'ponatinib_Ablkinase_Jun2022.pdb', () => {
+        setupCamera();
+        setupControls(); 
+        setupLights();
+
+        onWindowResize();
+
+        console.log("NUMBER OF OBJECTS", numObjects);
     });
 }
 
@@ -114,17 +135,15 @@ function setupCamera() {
     const center = new THREE.Vector3();
     box.getCenter(center);
 
-    // Compute the aspect ratio based on the container's width and height
     let aspectRatio = window.innerWidth / window.innerHeight;
 
-    // Set the size of the camera frustum to fit the bounding box
-    let viewSize = Math.max(size.x, size.y, size.z);  // Use the largest dimension for the view size
+    let viewSize = Math.max(size.x, size.y, size.z);   
     let left = -aspectRatio * viewSize / 2;
     let right = aspectRatio * viewSize / 2;
     let top = viewSize / 2;
     let bottom = -viewSize / 2;
-    let near = 1;  // Near clipping plane (usually a small positive number)
-    let far = 10000;  // Far clipping plane (adjust based on your scene size)
+    let near = 1;   
+    let far = 10000;   
 
     // Create the orthographic camera
     camera.left = left;
@@ -181,14 +200,6 @@ function setupControls() {
     animateControls();
 }
 
-function storeInitialView() {
-    initialPosition.copy(camera.position);
-    initialQuaternion.copy(camera.quaternion);
-    
-    //initialTarget.copy(controls.getTarget);
-    controls.getTarget(initialTarget);
-}
-
 function getVisibleBoundingBox() {
     let box = new THREE.Box3();
     let tempBox = new THREE.Box3();
@@ -233,10 +244,8 @@ function calculateTime(startTime, endTime, message) {
 // creates a new copy of atoms and bonds for every tab
 // from the given pdb and given representation style, 
 // then loads default molecule (rep 0, CPK) into scene 
-function loadMolecule(model, representation, rep, callback) { 
+function loadMolecule(model, callback) { 
     let startTime = new Date();
-
-    console.log("loading model", model, "representation", representation);
 
     // grab model file 
     const url = './models/molecules/' + model;
@@ -272,7 +281,6 @@ function loadMolecule(model, representation, rep, callback) {
         let sphereGeometryCPK = new THREE.IcosahedronGeometry(1/3, detail );
         let boxGeometryCPK = new THREE.BoxGeometry( 1/75, 1/75, 0.6 );
         let sphereGeometryVDWCache = {};
-        let boxGeometryLinesCache = {};
         
         let randTime = new Date();
 
@@ -302,14 +310,13 @@ function loadMolecule(model, representation, rep, callback) {
             position.y = positions.getY( i );
             position.z = positions.getZ( i );
 
-            //console.log("json_atoms.atoms", json_atoms.atoms)            
             
             // create a set of atoms/bonds for each tab
             for (let n = 0; n < maxRepTabs; n++) {
                 //console.log('loaded atoms for tab', n);
                 
                 // create a set of atoms/bonds in each of the 3 styles for each tab
-                for (let key of reps) {
+                for (let key of drawing) {
                     //console.log('loaded atoms for style', key);
                     
                     let atomName = json_atoms.atoms[i][7];
@@ -347,9 +354,6 @@ function loadMolecule(model, representation, rep, callback) {
                     // create atom object that is a sphere with the position, color, and content we want 
                     const object = new THREE.Mesh( sphereGeometry, material );
                     object.position.copy( position );
-                    //object.position.multiplyScalar( 75 ); // TODOlater figure out why scaling
-                    //object.scale.multiplyScalar( 25 );
-                    //sphereGeometry.computeBoundingSphere();
         
                     object.molecularElement = "atom";
                     object.style = key;
@@ -361,12 +365,6 @@ function loadMolecule(model, representation, rep, callback) {
                     object.printableString = resName + residue.toString() + ':' + atomName.toUpperCase();
                     object.atomInfoSprite = null;
 
-                    /* console.log('residue', residue);
-                    console.log('atomName', atomName);
-                    console.log('resName', resName);
-
-                    console.log('object.printableString', object.printableString); */
-
                     object.originalColor = new THREE.Color().setRGB(colors.getX( i ), colors.getY( i ), colors.getZ( i ));
 
                     object.material.color.set(color);
@@ -377,11 +375,12 @@ function loadMolecule(model, representation, rep, callback) {
                     // add atom object to scene 
                     root.add( object );
 
-                    if (key == representation && n == rep) {
+                    /* if (key == representation && n == rep) {
                         object.visible = true;
                     } else {
                         object.visible = false;
-                    }
+                    } */
+                   object.visible = true;
                 }
             } 
         }
@@ -420,7 +419,7 @@ function loadMolecule(model, representation, rep, callback) {
             for (let n = 0; n < maxRepTabs; n++) {
                 //console.log('loaded bonds for tab', n);
 
-                for (let key of reps) {
+                for (let key of drawing) {
 
                     if (key == CPK) {
                         numObjects += 1;
@@ -445,21 +444,20 @@ function loadMolecule(model, representation, rep, callback) {
                         root.add( object );
 
                         // only if key is equal to the rep we want and rep is correct, make visible, else hide
-                        if (key == representation && n == rep) {
+                        /* if (key == representation && n == rep) {
                             object.visible = true;
                         } else {
                             object.visible = false;
-                        }
+                        } */
 
                     } else if (key == lines) {
-                        numObjects += 1;
+                        numObjects += 2;
 
                         let bondThickness = 0.1;
                         const bondLength = start.distanceTo(end);
                         const halfBondLength = bondLength / 2;
 
                         boxGeometry = new THREE.BoxGeometry(bondThickness, bondThickness, halfBondLength);  
-                        //console.log('colors', color1, color2);
 
                         const material1 = new THREE.MeshBasicMaterial({ color: color1 });
                         const material2 = new THREE.MeshBasicMaterial({ color: color2 });
@@ -493,20 +491,17 @@ function loadMolecule(model, representation, rep, callback) {
                         bondHalf2.atom2 = atom2;
                         bondHalf2.originalColor = color2;
 
-                       /*  console.log('bondhalf1', bondHalf1);
-                        console.log('bondHalf2', bondHalf2); */
-
                         root.add(bondHalf1);
                         root.add(bondHalf2);
 
                         // only if key is equal to the rep we want and rep is correct, make visible, else hide
-                        if (key == representation && n == rep) {
+                        /* if (key == representation && n == rep) {
                             bondHalf1.visible = true;
                             bondHalf2.visible = true;
                         } else {
                             bondHalf1.visible = false;
                             bondHalf2.visible = false;
-                        } 
+                        }  */
 
                     } else if (key == VDW) { // skip VDW, no bonds
                         continue;
@@ -569,43 +564,17 @@ function onWindowResize() {
     render();
 }
 
-
-
 // animate the molecule (allow it to move, be clicked)
 function animate() {
-    //console.log("animated")
     requestAnimationFrame( animate );
-
-    // FPS
-    if (framesOn) {
-        frames ++;
-        const time = performance.now();
-        
-        if ( time >= prevTime + 1000 ) {
-        
-            console.log( Math.round( ( frames * 1000 ) / ( time - prevTime ) ) );
-        
-        frames = 0;
-        prevTime = time;
-        
-        }
-
-        controls.update();
-        camera.updateProjectionMatrix();
-    } else {
-        controls.update();
-    }
-
-    render();
+    controls.update();
+    render(); 
 }
-
 
 // render the molecule (adding scene and camera + objects)
 function render() {
     renderer.render( scene, camera );
 }
-
-
 
 // get radius size of a given atom name 
 function getRadius(atom){

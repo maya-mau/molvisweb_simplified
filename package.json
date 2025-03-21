@@ -1,6 +1,8 @@
 {
   "dependencies": {
     "camera-controls": "github:yomotsu/camera-controls",
+    "stats-js": "^1.0.1",
+    "stats.js": "^0.17.0",
     "three": "^0.170.0"
   }
 }
