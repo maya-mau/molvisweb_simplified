@@ -1,241 +1,85 @@
-// import three js and all the addons that are used in this script 
+
 import * as THREE from 'three';
 import { PDBLoader } from './mymods/PDBLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-
 import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
 
-// GLOBAL CONSTANTS
-const CPK = 'Ball-and-stick';
-const VDW = 'Space filling';
-const lines = 'Lines';
-//const reps = [VDW, CPK, lines];
-const reps = [CPK];
+// Set up scene, camera, and renderer
+let scene = new THREE.Scene();
+let camera, controls, renderer;
 
-// icosahedron detail
-const detail = 3;
-let numObjects = 0;
+// Set up the orthographic camera
+function setupCamera() {
+    const aspect = window.innerWidth / window.innerHeight;
+    const viewSize = 100;  // Adjust this to fit your molecule's size
+    const frustumSize = viewSize;
 
-// initialize the baseline objects  
-let camera, scene, renderer, container;
-
-// initialize main window 
-scene = new THREE.Scene();
-scene.background = new THREE.Color( 0x000000 );
-globalThis.scene = scene;
-
-let root = new THREE.Group();
-
-scene.add(root);
-
-container = document.getElementsByClassName('row')[0];
-
-let controls;
-let geometryAtoms, geometryBonds, json_atoms, json_bonds, json_bonds_manual, json_bonds_conect, residues, chains;
-
-let initialPosition, initialQuaternion;
-let initialTarget = new THREE.Vector3(0,0,0);
-
-const PDBloader = new PDBLoader(); 
-const offset = new THREE.Vector3();
-
-
-const defaultParams = {
-    repParams: 1 
+    camera = new THREE.OrthographicCamera(
+        -aspect * frustumSize, aspect * frustumSize, 
+        frustumSize, -frustumSize, 
+        1, 1000
+    );
+    camera.position.set(100, 100, 100);  // Position the camera in 3D space
+    camera.lookAt(new THREE.Vector3(0, 0, 0));  // Look at the origin
 }
 
-const containerWidth = 909;
-const containerHeight = 454;
+// Set up the OrbitControls
+function setupControls() {
+    controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.25;
+    controls.screenSpacePanning = false;
+    controls.maxPolarAngle = Math.PI / 2;  // Restrict vertical movement
+}
 
+// Set up the renderer
+function setupRenderer() {
+    renderer = new THREE.WebGLRenderer();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+}
 
-var numRepTabs = 1;
-var currentRep = 0;
+// Handle resizing of the window
+function onWindowResize() {
+    const aspect = window.innerWidth / window.innerHeight;
+    camera.left = -aspect * 100;
+    camera.right = aspect * 100;
+    camera.top = 100;
+    camera.bottom = -100;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+}
 
-globalThis.numRepTabs = numRepTabs;
-globalThis.currentRep = currentRep;
+window.addEventListener('resize', onWindowResize);
 
-let maxRepTabs = 1;
+// Initialize the scene
+function init() {
+    setupCamera();
+    setupRenderer();
+    setupControls();
 
-let frames = 0, prevTime = performance.now();
-const framesOn = true;
+    // Load your molecule and add it to the scene
+    loadMolecule('ponatinib_Ablkinase_Jun2022.pdb', CPK, currentRep);
+
+    // Set up the animation loop
+    animate();
+}
+
+// Animation loop
+function animate() {
+    requestAnimationFrame(animate);
+
+    controls.update();  // Update the controls (necessary for damping)
+    renderer.render(scene, camera);
+}
 
 init();
 
 
-// init function - sets up scene, camera, renderer, controls, and GUIs 
-function init() {
-
-
-    //setupGUI();
-    setupLights();
-    setupRenderer();
-    
-    // initialize camera
-    camera = new THREE.OrthographicCamera(0,0,0,0,0,0);
-
-    // the default/first molecule to show up 
-    loadMolecule( 'ponatinib_Ablkinase_Jun2022.pdb', CPK, currentRep, () => {
-        setupCamera();
-        setupControls();
-
-        root.visible = true;
-
-        // dynamic screen size 
-        window.addEventListener( 'resize', onWindowResize );
-
-        onWindowResize();
-
-        animate();
-
-        console.log("NUMBER OF OBJECTS", numObjects);
-    }); 
-}
-
-function setupGUI() {
-    var gui = new GUI();
-    gui.add(defaultParams, 'repParams', 1, 4).step(1).onChange((val) => {
-        console.log("Representation changed!");
-        maxRepTabs = val;
-        console.log(root);
-        root.traverse((obj) => {
-            root.remove(obj);
-        })
-        init();
-    });
-}
-
-function setupCamera() {
-    let box = getVisibleBoundingBox();
-    const size = new THREE.Vector3();
-    box.getSize(size);
-    let maxDim = Math.max(size.x, size.y, size.z);
-
-
-    const center = new THREE.Vector3();
-    box.getCenter(center);
-
-    // Compute the aspect ratio based on the container's width and height
-    let aspectRatio = window.innerWidth / window.innerHeight;
-
-    // Set the size of the camera frustum to fit the bounding box
-    let viewSize = Math.max(size.x, size.y, size.z);  // Use the largest dimension for the view size
-    let left = -aspectRatio * viewSize / 2;
-    let right = aspectRatio * viewSize / 2;
-    let top = viewSize / 2;
-    let bottom = -viewSize / 2;
-    let near = 1;  // Near clipping plane (usually a small positive number)
-    let far = 10000;  // Far clipping plane (adjust based on your scene size)
-
-    // Create the orthographic camera
-    camera.left = left;
-    camera.right = right;
-    camera.top = top;
-    camera.bottom = bottom;
-    camera.near = near;
-    camera.far = far;
-
-    camera.position.set(center.x, center.y, maxDim * 2);
-
-    globalThis.camera = camera;
-    scene.add(camera);
-}
-
-function setupLights() {
-    scene.add(new THREE.AmbientLight(0xffffff, 1));
-
-    const light1 = new THREE.DirectionalLight(0xffffff, 2.5);
-    light1.position.set(1, 1, 1);
-    scene.add(light1);
-
-    const light2 = new THREE.DirectionalLight(0xffffff, 1.5);
-    light2.position.set(1, -1, -1);
-    scene.add(light2);
-}
-
-function setupRenderer() {
-    renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setPixelRatio(window.devicePixelRatio);
-    renderer.setSize(containerWidth, containerHeight);
-    renderer.domElement.id = 'canvas';
-    container.appendChild(renderer.domElement);
-}
-
-function setupControls() {
-    const clock = new THREE.Clock();
-    controls = new OrbitControls(camera, renderer.domElement);
-
-    controls.enableRotate = true;  // Enable rotation
-    controls.enableZoom = true;    // Enable zoom
-    controls.enablePan = true;     // Enable pan
-    
-    // Start the smooth rotation/animation
-    function animateControls() {
-        requestAnimationFrame(animateControls);
-
-        // If you want auto-rotation, you can modify azimuthAngle or other properties here
-        controls.autoRotate = true;  
-        controls.update(clock.getDelta());  // Update controls for smoothness
-        renderer.render(scene, camera);
-    }
-
-    animateControls();
-}
-
-function storeInitialView() {
-    initialPosition.copy(camera.position);
-    initialQuaternion.copy(camera.quaternion);
-    
-    //initialTarget.copy(controls.getTarget);
-    controls.getTarget(initialTarget);
-}
-
-function getVisibleBoundingBox() {
-    let box = new THREE.Box3();
-    let tempBox = new THREE.Box3();
-
-    root.traverse( (obj) => {
-        if (obj.isMesh && obj.visible) {
-
-            obj.geometry.computeBoundingBox();
-            tempBox.copy(obj.geometry.boundingBox).applyMatrix4(obj.matrixWorld);
-            box.union(tempBox);
-        } 
-    })
-
-    let helper = new THREE.Box3Helper(box, new THREE.Color(0xff0000)); // Red color
-    scene.add(helper);  // Add helper to scene for visualization
-    helper.visible = true;
-
-    return box;
-}
-
-function addAxes() {
-    const axesHelper = new THREE.AxesHelper( 100 );
-    scene.add( axesHelper );
-}
-
-function getBoundingBoxCenter() {
-
-    let boundingBox = getVisibleBoundingBox();
-    let center = new THREE.Vector3();
-    boundingBox.getCenter(center);
-    return center;
-}
-
-
-function calculateTime(startTime, endTime, message) {
-    let totalTime = Math.abs(endTime - startTime);
-    //console.log('time in milliseconds:', totalTime);
-    console.log(message, 'in seconds:', totalTime/1000);
-}
-
-
-// creates a new copy of atoms and bonds for every tab
-// from the given pdb and given representation style, 
-// then loads default molecule (rep 0, CPK) into scene 
 function loadMolecule(model, representation, rep, callback) { 
     let startTime = new Date();
 
+    console.log('in new new version that creates a new copy and atoms/bonds for every tab')
     console.log("loading model", model, "representation", representation);
 
     // grab model file 
@@ -323,7 +167,6 @@ function loadMolecule(model, representation, rep, callback) {
                     material.color = color;
 
                     if (key == VDW) {
-                        numObjects += 1;
                         
                         // if element doesn't yet exist in VDW cache, create a new geometry and add it
                         if (!(atomName in sphereGeometryVDWCache)) {
@@ -337,7 +180,6 @@ function loadMolecule(model, representation, rep, callback) {
                         }
 
                     } else if (key == CPK) {
-                        numObjects += 1;
                         sphereGeometry = sphereGeometryCPK;
 
                     } else if (key == lines) { // skip loading lines
@@ -423,7 +265,6 @@ function loadMolecule(model, representation, rep, callback) {
                 for (let key of reps) {
 
                     if (key == CPK) {
-                        numObjects += 1;
                         boxGeometry = boxGeometryCPK;
 
                         const bondMaterial = new THREE.MeshPhongMaterial( { color: 0xffffff } );
@@ -452,7 +293,6 @@ function loadMolecule(model, representation, rep, callback) {
                         }
 
                     } else if (key == lines) {
-                        numObjects += 1;
 
                         let bondThickness = 0.1;
                         const bondLength = start.distanceTo(end);
@@ -531,111 +371,3 @@ function loadMolecule(model, representation, rep, callback) {
         
     } );
 }
-
-function onWindowResize() {
-    //console.log('in onWindowResize()');
-
-    let w = container.clientWidth;
-    let h = container.clientHeight;
-    //console.log('w', w, 'h', h);
-
-    let aspectRatio = w / h;
-    let center = getBoundingBoxCenter();
-
-    // Adjust the camera's aspect ratio
-    if (camera.isOrthographicCamera) {
-
-        // For orthographic camera
-        let currentHeight = camera.top - camera.bottom;
-        let newWidth = currentHeight * aspectRatio;
-        let centerX = (camera.left + camera.right) / 2;
-
-        camera.left = centerX - newWidth / 2;
-        camera.right = centerX + newWidth / 2;
-
-    } else if (camera.isPerspectiveCamera) {
-
-        // For perspective camera
-        camera.aspect = aspectRatio;
-    }
-
-    camera.updateProjectionMatrix();
-    controls.target.set(center.x, center.y, center.z);
-    //controls.update();
-
-    // Update renderer size
-    renderer.setSize(w, h);
-    
-    render();
-}
-
-
-
-// animate the molecule (allow it to move, be clicked)
-function animate() {
-    //console.log("animated")
-    requestAnimationFrame( animate );
-
-    // FPS
-    if (framesOn) {
-        frames ++;
-        const time = performance.now();
-        
-        if ( time >= prevTime + 1000 ) {
-        
-            console.log( Math.round( ( frames * 1000 ) / ( time - prevTime ) ) );
-        
-        frames = 0;
-        prevTime = time;
-        
-        }
-
-        controls.update();
-        camera.updateProjectionMatrix();
-    } else {
-        controls.update();
-    }
-
-    render();
-}
-
-
-// render the molecule (adding scene and camera + objects)
-function render() {
-    renderer.render( scene, camera );
-}
-
-
-
-// get radius size of a given atom name 
-function getRadius(atom){
-    let rad; 
-
-    if(atom == "Br"){
-        rad = 1.83 }
-
-    if(atom == "C"){
-        rad = 1.7 }
-
-    if(atom == "Cl"){
-        rad = 1.75}
-
-    if(atom == "F"){
-        rad = 1.35 }
-
-    if(atom == "H"){
-        rad = 1.2 }
-
-    if(atom == "N"){
-        rad = 1.55 }
-
-    if(atom == "O"){
-        rad = 1.52 }
-
-    if(atom == "S"){
-        rad = 1.80 }
-
-    return rad; 
-}
-
-

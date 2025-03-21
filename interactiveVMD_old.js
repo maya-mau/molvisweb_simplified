@@ -4,34 +4,33 @@ import { PDBLoader } from './mymods/PDBLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
+//import { TW } from '/TWPackage.js';
+//import { TW } from 'tw';
+
+import CameraControls from 'https://cdn.jsdelivr.net/npm/camera-controls/dist/camera-controls.module.js';
+
+CameraControls.install( { THREE: THREE } );
+
 
 // GLOBAL CONSTANTS
 const CPK = 'Ball-and-stick';
 const VDW = 'Space filling';
 const lines = 'Lines';
-//const reps = [VDW, CPK, lines];
-const reps = [CPK];
+const reps = [VDW, CPK, lines];
 
-// icosahedron detail
+
+// icosahedron 
 const detail = 3;
-let numObjects = 0;
 
 // initialize the baseline objects  
 let camera, scene, renderer, container;
-
-// initialize main window 
-scene = new THREE.Scene();
-scene.background = new THREE.Color( 0x000000 );
-globalThis.scene = scene;
-
-let root = new THREE.Group();
-
-scene.add(root);
-
 container = document.getElementsByClassName('row')[0];
 
 let controls;
+let root = new THREE.Group();
 let geometryAtoms, geometryBonds, json_atoms, json_bonds, json_bonds_manual, json_bonds_conect, residues, chains;
+// let outlinePass, composer;
+var raycaster, mouse = {x: 0, y: 0 }
 
 let initialPosition, initialQuaternion;
 let initialTarget = new THREE.Vector3(0,0,0);
@@ -39,10 +38,13 @@ let initialTarget = new THREE.Vector3(0,0,0);
 const PDBloader = new PDBLoader(); 
 const offset = new THREE.Vector3();
 
+// setting default/on load molecule  
 
 const defaultParams = {
     repParams: 1 
 }
+
+let selectedObject = null;
 
 const containerWidth = 909;
 const containerHeight = 454;
@@ -54,10 +56,18 @@ var currentRep = 0;
 globalThis.numRepTabs = numRepTabs;
 globalThis.currentRep = currentRep;
 
-let maxRepTabs = 1;
+const maxRepTabs = 1;
 
 let frames = 0, prevTime = performance.now();
 const framesOn = true;
+
+// specific settings for the raycaster (clicker) that make it senstitive enough to distinguish atoms 
+raycaster = new THREE.Raycaster();
+raycaster.near = .1;
+raycaster.far = Infinity;
+raycaster.params.Points.threshold = 0.1; 
+raycaster.params.Line.threshold = 0.1;  
+
 
 init();
 
@@ -65,42 +75,42 @@ init();
 // init function - sets up scene, camera, renderer, controls, and GUIs 
 function init() {
 
+    // initialize main window 
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color( 0x000000 );
+    globalThis.scene = scene;
+    scene.add(root);
 
-    //setupGUI();
+    setupGUI();
     setupLights();
     setupRenderer();
     
+
     // initialize camera
     camera = new THREE.OrthographicCamera(0,0,0,0,0,0);
 
     // the default/first molecule to show up 
     loadMolecule( 'ponatinib_Ablkinase_Jun2022.pdb', CPK, currentRep, () => {
+        // The camera will be updated after the molecule is fully loaded
         setupCamera();
         setupControls();
 
         root.visible = true;
 
         // dynamic screen size 
-        window.addEventListener( 'resize', onWindowResize );
+        //window.addEventListener( 'resize', onWindowResize );
 
         onWindowResize();
 
         animate();
-
-        console.log("NUMBER OF OBJECTS", numObjects);
     }); 
 }
 
 function setupGUI() {
     var gui = new GUI();
-    gui.add(defaultParams, 'repParams', 1, 4).step(1).onChange((val) => {
+    gui.add(defaultParams, 'repParams', 1, 4).onChange(() => {
         console.log("Representation changed!");
-        maxRepTabs = val;
-        console.log(root);
-        root.traverse((obj) => {
-            root.remove(obj);
-        })
-        init();
+        // Optionally trigger a redraw
     });
 }
 
@@ -108,8 +118,6 @@ function setupCamera() {
     let box = getVisibleBoundingBox();
     const size = new THREE.Vector3();
     box.getSize(size);
-    let maxDim = Math.max(size.x, size.y, size.z);
-
 
     const center = new THREE.Vector3();
     box.getCenter(center);
@@ -134,7 +142,9 @@ function setupCamera() {
     camera.near = near;
     camera.far = far;
 
-    camera.position.set(center.x, center.y, maxDim * 2);
+    console.log('Bounding Box Center:', center);
+    console.log('Bounding Box Size:', size);
+
 
     globalThis.camera = camera;
     scene.add(camera);
@@ -222,6 +232,67 @@ function getBoundingBoxCenter() {
     return center;
 }
 
+function recenterCamera(camera, controls) {
+
+    let boundingBox = getVisibleBoundingBox();
+    let center = getBoundingBoxCenter();
+    
+    let size = boundingBox.getSize(new THREE.Vector3());
+    let maxDim = Math.max(size.x, size.y, size.z);
+
+    if (camera.isPerspectiveCamera) {
+        let distanceMultiplier = 2.5; // Adjust this value to zoom out more
+        let distance = maxDim * distanceMultiplier;
+    
+        camera.position.set(
+            center.x,
+            center.y,
+            center.z + distance
+        );
+    
+        let aspect = window.innerWidth / window.innerHeight;
+        let fov = 2 * Math.atan((maxDim / 2) / distance) * (180 / Math.PI);
+        camera.fov = Math.min(Math.max(fov, 30), 75); // Clamp FOV between 30 and 75 degrees
+        camera.aspect = aspect;
+        camera.near = 0.1;
+        camera.far = maxDim * 10;
+    
+        controls.minDistance = maxDim * 0.5;
+        controls.maxDistance = maxDim * 10;
+        controls.getTarget(center);
+
+    } else {
+
+        //console.log('camera is orthographic');
+
+        let scaleFactor = 5; // Increase this value to zoom out more
+        let left = (-size.x) / 2 * scaleFactor;
+        let right = (size.x) / 2 * scaleFactor;
+        let top = size.y / 2 * scaleFactor;
+        let bottom = -size.y / 2 * scaleFactor;
+        let near = -maxDim * 5;
+        let far = maxDim * 5;
+
+        camera.left = left;
+        camera.right = right;
+        camera.top = top;
+        camera.bottom = bottom;
+        camera.near = near;
+        camera.far = far;
+
+        camera.position.set(center.x, center.y, maxDim * 2);
+        controls.target.set(center.x, center.y, center.z);
+        /* let target = new THREE.Vector3(0,0,0);
+        controls.getTarget(target);
+         */
+    }
+
+    
+    camera.updateProjectionMatrix();
+    //controls.update();
+
+    storeInitialView();
+}
 
 function calculateTime(startTime, endTime, message) {
     let totalTime = Math.abs(endTime - startTime);
@@ -236,6 +307,7 @@ function calculateTime(startTime, endTime, message) {
 function loadMolecule(model, representation, rep, callback) { 
     let startTime = new Date();
 
+    console.log('in new new version that creates a new copy and atoms/bonds for every tab')
     console.log("loading model", model, "representation", representation);
 
     // grab model file 
@@ -323,7 +395,6 @@ function loadMolecule(model, representation, rep, callback) {
                     material.color = color;
 
                     if (key == VDW) {
-                        numObjects += 1;
                         
                         // if element doesn't yet exist in VDW cache, create a new geometry and add it
                         if (!(atomName in sphereGeometryVDWCache)) {
@@ -337,7 +408,6 @@ function loadMolecule(model, representation, rep, callback) {
                         }
 
                     } else if (key == CPK) {
-                        numObjects += 1;
                         sphereGeometry = sphereGeometryCPK;
 
                     } else if (key == lines) { // skip loading lines
@@ -423,7 +493,6 @@ function loadMolecule(model, representation, rep, callback) {
                 for (let key of reps) {
 
                     if (key == CPK) {
-                        numObjects += 1;
                         boxGeometry = boxGeometryCPK;
 
                         const bondMaterial = new THREE.MeshPhongMaterial( { color: 0xffffff } );
@@ -452,7 +521,6 @@ function loadMolecule(model, representation, rep, callback) {
                         }
 
                     } else if (key == lines) {
-                        numObjects += 1;
 
                         let bondThickness = 0.1;
                         const bondLength = start.distanceTo(end);
