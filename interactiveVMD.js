@@ -114,7 +114,6 @@ function resetScene() {
 
     loadMolecule( 'ponatinib_Ablkinase_Jun2022.pdb', () => {
         setupCamera();
-        setupControls(); 
         setupLights();
 
         onWindowResize();
