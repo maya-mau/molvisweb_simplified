@@ -3,14 +3,13 @@ import { PDBLoader } from './mymods/PDBLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
 
-// import { createInstancedMesh } from './createInstancedMesh'; 
-
-
 
 // GLOBAL CONSTANTS
 const CPK = 'Ball-and-stick';
 const VDW = 'Space filling';
 const lines = 'Lines';
+const INSTANCED = 'instanced';
+const NAIVE = 'naive';
 
 let drawing = [CPK];
 
@@ -31,22 +30,22 @@ scene.add(root);
 container = document.getElementsByClassName('row')[0];
 
 let controls;
-let geometryAtoms, geometryBonds, json_atoms, json_bonds, json_bonds_manual;
+let geometryAtoms, geometryBonds, json_atoms, json_bonds;
 
 const PDBloader = new PDBLoader(); 
 const offset = new THREE.Vector3();
 
 const defaultParams = {
     repParams: 1, 
-    instancedParams: 'instanced',
+    instancedParams: NAIVE,
     drawParams: CPK
 }
 
 const containerWidth = 909;
 const containerHeight = 454;
 
-let maxRepTabs = 1;
-let instanced = true;
+let maxRepTabs = defaultParams.repParams;
+let instanced = defaultParams.instancedParams;
 
 init();
 
@@ -81,7 +80,7 @@ function setupGUI() {
         resetScene();
     });
 
-    gui.add(defaultParams, 'instancedParams', [ 'instanced', 'naive' ] ).onChange((val) => {
+    gui.add(defaultParams, 'instancedParams', [ INSTANCED, NAIVE ] ).onChange((val) => {
         instanced = val;
         resetScene();
     });
@@ -102,6 +101,8 @@ function resetScene() {
         if (obj.isMesh) {
             obj.geometry.dispose();
             obj.material.dispose();
+        } else if (obj.isInstancedMesh) {
+            obj.dispose();
         }
     });
 
@@ -191,39 +192,33 @@ function setupControls() {
     animateControls();
 }
 
-function getInstancedBoundingBox(instancedMesh) {
-    let bbox = new THREE.Box3(); // Empty bounding box
-    let position = new THREE.Vector3();
-    let matrix = new THREE.Matrix4();
-    let worldMatrix = new THREE.Matrix4();
-
-    instancedMesh.updateWorldMatrix(true, false); // Ensure world matrix is updated
-
-    for (let i = 0; i < instancedMesh.count; i++) {
-        instancedMesh.getMatrixAt(i, matrix);
-        worldMatrix.copy(instancedMesh.matrixWorld).multiply(matrix); // Get the world matrix for the instance
-        position.setFromMatrixPosition(worldMatrix); // Extract world position
-        bbox.expandByPoint(position); // Expand bounding box
-    }
-
-    return bbox;
-}
-
 
 function getVisibleBoundingBox() {
     let box = new THREE.Box3();
     let tempBox = new THREE.Box3();
 
-    root.traverse( (obj) => {
-        if (obj.isInstancedMesh) {
-            console.log("obj", obj);
-            
-            obj.computeBoundingBox();
-            tempBox.copy(obj.boundingBox).applyMatrix4(obj.matrixWorld);
-            box.union(tempBox);
-            
-        } 
-    });
+    if (instanced == INSTANCED) {
+        root.traverse( (obj) => {
+            if (obj.isInstancedMesh) {
+                console.log("obj", obj);
+                
+                obj.computeBoundingBox();
+                tempBox.copy(obj.boundingBox).applyMatrix4(obj.matrixWorld);
+                box.union(tempBox);
+                
+            }
+        });
+
+    } else if (instanced == NAIVE) {
+        root.traverse( (obj) => {
+            if (obj.isMesh && obj.visible) {
+    
+                obj.geometry.computeBoundingBox();
+                tempBox.copy(obj.geometry.boundingBox).applyMatrix4(obj.matrixWorld);
+                box.union(tempBox);
+            } 
+        })
+    }   
 
     let helper = new THREE.Box3Helper(box, new THREE.Color(0xff0000)); 
     scene.add(helper);  
@@ -248,6 +243,9 @@ function calculateTime(startTime, endTime, message) {
 
 // creates a new copy of atoms and bonds for every rep
 function loadMolecule(model, callback) { 
+
+    console.log('doing maxRepTabs', maxRepTabs, 'with', instanced);
+
     let startTime = new Date();
     const url = './models/molecules/' + model;
 
@@ -276,8 +274,7 @@ function loadMolecule(model, callback) {
         
         let atomStartTime = new Date();
 
-        if (instanced) {
-            console.log('in instanced');
+        if (instanced == INSTANCED) {
             
             // ONLY DOING CPK ONE REP FOR NOW
             let atomCount = positions.count * maxRepTabs * drawing.length;
@@ -367,7 +364,7 @@ function loadMolecule(model, callback) {
             calculateTime(bondStartTime, bondEndTime, 'time to load bonds');
         
 
-        } else { // naive
+        } else if (instanced == NAIVE) { // naive
 
             console.log('in naive');
 
