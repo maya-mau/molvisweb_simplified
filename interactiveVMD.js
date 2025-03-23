@@ -47,6 +47,8 @@ const containerHeight = 454;
 let maxRepTabs = defaultParams.repParams;
 let instanced = defaultParams.instancedParams;
 
+let autoRotate = false;
+
 init();
 
 // sets up scene, camera, renderer, controls, and GUIs 
@@ -181,10 +183,16 @@ function setupControls() {
     
     // Start the smooth rotation/animation
     function animateControls() {
+
         requestAnimationFrame(animateControls);
 
-        controls.autoRotate = true;  
-        controls.update(clock.getDelta());   
+        if (autoRotate) {
+            controls.autoRotate = true;  
+            controls.update(clock.getDelta());  
+        } else {
+            controls.update();
+        }
+
         renderer.render(scene, camera);
     }
 
