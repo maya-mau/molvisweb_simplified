@@ -60,7 +60,7 @@ function init() {
     
     camera = new THREE.OrthographicCamera(0,0,0,0,0,0);
 
-    loadMolecule( 'ponatinib_Ablkinase_Jun2022.pdb', () => {
+    loadMolecule( 'ponatinib_Sep2022.pdb', () => {
         setupCamera();
         setupControls();
 
