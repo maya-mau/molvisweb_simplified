@@ -47,7 +47,7 @@ const containerHeight = 454;
 let maxRepTabs = defaultParams.repParams;
 let instanced = defaultParams.instancedParams;
 
-let autoRotate = false;
+let autoRotate = true;
 
 init();
 
@@ -170,7 +170,7 @@ function setupLights() {
 }
 
 function setupRenderer() {
-    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer = new THREE.WebGLRenderer({ antialias: false });
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setSize(containerWidth, containerHeight);
     renderer.domElement.id = 'canvas';
@@ -266,6 +266,7 @@ function loadMolecule(model, callback) {
 
         // pre-build geometries for atoms and bonds, naive
         let sphereGeometryCPK = new THREE.IcosahedronGeometry( 1/3, detail );
+        //let sphereGeometryCPK = new THREE.SphereGeometry( 1/3, 4, 4 );
         let boxGeometryCPK = new THREE.BoxGeometry( 1/75, 1/75, 0.6 );
         let sphereGeometryVDWCache = {};
         
@@ -293,6 +294,9 @@ function loadMolecule(model, callback) {
             let atomInstancedMesh = new THREE.InstancedMesh(sphereGeometry, sphereMaterial, atomCount);
             atomInstancedMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
             let atomIndex = 0;
+
+            atomInstancedMesh.castShadow = false;
+            atomInstancedMesh.receiveShadow = false;
 
             // InstancedMesh for bonds
             let boxGeometry = new THREE.BoxGeometry(0.08, 0.08, 0.6);
