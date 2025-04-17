@@ -77,7 +77,7 @@ function init() {
 function setupGUI() {
     let gui = new GUI();
 
-    gui.add(defaultParams, 'repParams', [ 1, 2, 3, 4 ] ).onChange((val) => {
+    gui.add(defaultParams, 'repParams', [ 1, 2, 3, 4, 5, 6, 7, 8 ] ).onChange((val) => {
         maxRepTabs = val;
         resetScene();
     });
